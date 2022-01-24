@@ -9,6 +9,96 @@ my @attr_all;
 my $static;
 my %loaded = ();
 
+
+=pod
+
+=encoding UTF-8
+
+=head1 NAME
+
+Clib::Web::Controller - HTTP-контроллер, позволяющий делать из структуры pm-модулей и функций в ник формировать красивые URL.
+
+=head1 SYNOPSIS
+    
+    use Clib::Web::Controller;
+
+    webctrl_local(
+            'CMain',
+            attr => [qw/Title ReturnDebug ReturnText/],
+            eval => "
+                use Clib::Const;
+                use Clib::Log;
+            
+                *wparam = *WebMain::param;
+            ",
+        ) || die webctrl_error;
+
+
+    package CMain::Load;
+    
+    sub _root :
+            ParamUInt
+            ReturnText
+    {
+        return 'OK';
+    }
+    
+    sub form :
+            ParamUInt
+    {
+        my $id = shift();
+        return 'form';
+    }
+
+Указанный пример сформирует пути:
+
+=over 4
+
+=item *
+
+C</load> - обработчик: функция CMain::Load::_root()
+
+=item *
+    
+C</load/XXX/form> - обработчик: функция CMain::Load::form()
+
+При вызове этой функции будет передан аргумент со значением XXX из URL.
+
+Для данного URL XXX может состоять только из цифр.
+
+=back
+
+=head1 Принцип
+
+Вся ветка модулей, начинающихся на C<CMain> (из примера) будет просканирована.
+Все фукнции с аттрибутами станут обработчиками URL, которые формируются исходя из пути к этой функции.
+
+Например, для пути к функции C<CMain::Load::_root()> действуют правила:
+
+=over 4
+
+=item *
+
+Префикс, указанный как C<$srch_class> (в примере: CMain) пропускается.
+
+=item *
+
+Все C<::> будут заменены на C</>.
+
+=item *
+
+Имя C<_root> (м.б. именем модуля или функции) пропускается.
+
+=item *
+
+Стандартные атрибуты C<ParamXXX> дописываются в конце пути перед именем функции в порядке их указания.
+
+=back
+
+=head1 Методы
+
+=cut
+
 sub import {
     my $pkg = shift;
     
@@ -36,6 +126,12 @@ sub import {
     }
 }
 
+=head2 new()
+
+Возвращает экземпляр объекта. Аргументов вызова нет.
+
+=cut
+
 sub new {
     my $class = shift;
     
@@ -47,6 +143,12 @@ sub new {
     
     return $self;
 }
+
+=head2 error()
+
+Возвращает ошибку, которая возникла при работе с этим объектом.
+
+=cut
 
 sub error {
     my $self = shift;
@@ -63,6 +165,28 @@ sub error {
     
     return $self->{error};
 }
+
+=head2 local($srch_class, ...)
+
+Добавляет в данный объект локальную ветку модулей, название которых начинается на $srch_class
+
+Доп параметры вызова:
+
+=over 4
+
+=item *
+
+C<attr> - список особых допустимых аттрибутов функций-обработчиков.
+
+=item *
+
+C<eval> - perl-код, который будет выполнен для каждого найденного модуля.
+
+Позволяет не дублировать один и тот же код во всех модулях контроллера.
+
+=back
+
+=cut
 
 sub local {
     my ($self, $srch_class, %p) = @_;
@@ -262,6 +386,12 @@ sub prefix {
     return $self->{prefix};
 }
 
+=head2 search($path)
+
+Ищет нужный обработчик по запрашиваемому URL.
+
+=cut
+
 sub search {
     my ($self, $path) = @_;
     
@@ -287,10 +417,46 @@ sub search {
     return;
 }
 
+=head2 bypath($path)
+
+Если HTTP-контроллер использует только простые пути без доп. аргументов (нет тэгов ParamXXX),
+то поиск через C<bypath> будет более быстрым, т.к. обращается сразу по ссылке и не перебирает
+все ссылки по регулярным выражениям.
+
+=cut
+
 sub bypath {
     my ($self, $path) = @_;
     return $self->{bypath}->{$path};
 }
+
+=head2 pref($path, @arg)
+
+Возвращает ссылку с собранными в неё значениями аргументов.
+
+При вызове в $path все места, где должны быть аргументы вызова, должны быть пропущены.
+
+Например, если у нас такой обработчик:
+
+    package CMain::Load;
+    
+    sub form :
+            ParamUInt
+    {
+        my $id = shift();
+        return 'form';
+    }
+
+Мы можем вызвать:
+
+    my $href = $ctrl->pref('load/form', 123);
+    #
+    #   $href будет содержать:
+    #
+    #       /load/123/form
+    #
+
+=cut
 
 sub pref {
     my ($self, $path, @arg) = @_;
@@ -298,6 +464,19 @@ sub pref {
     my $disp = bypath($self, $path) || return;
     return @arg ? sprintf($disp->{href}, @arg) : $disp->{href};
 }
+
+=head2 do($disp, @param)
+
+Вызывает найденный с помощью search() обработчик:
+
+    my $url = '/load/123/form';
+    
+    my ($disp, @webp) = $ctrl->search($url);
+    my @ret = $ctrl->do($disp, @webp);
+
+В C<@ret> будет то, что вернула функция C<CMain::Load::form()>
+
+=cut
 
 sub do {
     my ($self, $disp, @param) = @_;
@@ -503,65 +682,82 @@ sub MODIFY_CODE_ATTRIBUTES{
     return @unknown;
 }
 
-=pod
-# code for this inspired by Devel::Symdump
-sub _find_name_of_sub_in_pkg{
-    my ($ref, $pkg) = @_;
-    no strict 'refs';
-    #return *{$ref}{NAME} if ref $ref eq 'GLOB';
-    while (my ($key,$val) = each(%{*{"$pkg\::"}})) {
-            local(*ENTRY) = $val;
-            if (defined $val && defined *ENTRY{CODE}) {
-                next unless *ENTRY{CODE} eq $ref;
-                # rewind "each"
-                my $a = scalar keys %{*{"$pkg\::"}};
-                return $key;
-            }
-        }
-
-    return undef;
-}
-
-sub _get_attr {
-    my @attr1 = ();
-    my %attr1 = ();
-    
-    foreach my $attr (@attr) {
-        my $attr1 = {
-            ref => $attr->{ref},
-            pkg => $attr->{pkg},
-            attr => [ map { { %$_ } } @{ $attr->{attr} } ],
-        };
-        
-        # Вычисление имени
-        if (ref($attr->{ref}) eq 'CODE') {
-            $attr1->{name} = _find_name_of_sub_in_pkg($attr->{ref}, $attr->{pkg});
-        }
-        $attr1->{name} || next;
-        
-        # выявление дублей, если для одного и того же объекта будет два элемента в списке @attr
-        my $key = ref($attr1->{ref}).'-'.$attr1->{pkg}.'-'.$attr1->{name};
-        if (my $attr2 = $attr1{$key}) {
-            push @{ $attr2->{attr} }, @{ $attr1->{attr} };
-        }
-        else {
-            $attr1{$key} = $attr1;
-            push @attr1, $attr1;
-        }
-    }
-    
-    return @attr1;
-}
-
-sub valid {
-    if (@_) {
-        @valid = @_;
-        my %valid = map { (lc($_) => 1) } @valid;
-    }
-    
-    return @valid;
-};
-sub clear { @attr = () }
-=cut
-
 1;
+
+__END__
+
+=head1 Статичные функции
+
+Модуль импортирует несколько статичных функций для быстрого поиска модулей, если не требуется несколько
+веток
+
+Все они начинаются с префикса C<webctrl_>. Например:
+
+    webctrl_local($dir, ...);
+
+Вызов этих функций работает с одним и тем же объектом, вызванным глобально.
+
+=head1 Стандартные аттрибуты функций контроллера
+
+=head2 Simple
+
+Обозначает функцию-обработчик, которому не нужны никакие специфичные атрибуты.
+
+=head2 Name
+
+Переопределяет имя функции
+
+=head2 Param
+
+Любой аргумент. В любом случае у аргумента, встраимого в URL, всегда есть минимальные правила:
+отсутствие пробелов, спецсимволов и всего, что недопустимо использовать в основной части URL
+
+=head2 ParamRegexp
+
+Аргумент, соответствующий регулярному выражению.
+
+=head2 ParamInt
+
+Аргумент - любое число
+
+=head2 ParamUInt
+
+Аргумент - любое положительное число
+
+=head2 ParamCode
+
+Аргумент, который будет обработан функцией.
+
+    package CMain::Load;
+    
+    sub byId {
+        my $id = shift();
+        return find_rec_by_id($id);
+    }
+    
+    sub form :
+            ParamCode(\&byId)
+    {
+        my $rec = shift();
+        return 'form';
+    }
+
+Тут в form() будет передан уже не C<$id>, а C<$rec>, полученная в C<byId()>.
+
+=head2 ParamCodeInt
+
+Аргумент - любое число, обработанное функцией.
+
+=head2 ParamCodeUInt
+
+Аргумент - любое положительное число, обработанное функцией.
+
+=head2 ParamWord
+
+Аргумент - любое слово. Допустимые символы: a-z, A-Z, 0-9, _ и -.
+
+=head2 ParamEnd
+
+Сообщает, чтобы в URL аргументы все шли в самом конце, после имени функции.
+
+=cut

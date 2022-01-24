@@ -3,14 +3,61 @@ package Clib::Web::CGI;
 use strict;
 use warnings;
 
-sub import {
-    my $pkg = shift;
+
+=pod
+
+=encoding UTF-8
+
+=head1 NAME
+
+Clib::Web::CGI - Унифицированный CGI-интерфейс.
+
+=head1 SYNOPSIS
     
-    
-    #my ($init, $request);
-    #*{"${callpkg}::ROOT"} = \&ROOT;
-    #my $pathRoot = $root;
-}
+    use Clib::Web::CGI;
+
+    Clib::Web::CGI->loop();
+
+    sub web_init {
+        # Процедуры инициализации
+    }
+
+    sub web_request {
+        return
+            '<html><body>Hello, World!</body></html>',
+            200,
+            'Content-type' => 'text/html; charset=utf-8';
+    }
+
+=head1 Вызываемые функции скрипта
+
+=head2 web_init()
+
+Будет вызвана однократно в самом начале выполнения C<Clib::Web::CGI->loop()>.
+
+=head2 web_request()
+
+Будет вызвана при http-запросе. Вернуть эта функция должна список:
+
+=over 4
+
+=item 1
+
+Скаляр или ссылка на функцию - возвращаемый контент.
+
+=item 2
+
+HTTP-статус - если ничего не указано, статус будет = 200.
+
+=item 3
+
+HTTP-заголовки
+
+=back
+
+CGI-интерфейс нужен больше для отладки работы web-скрипта. А полноценно унификация проявляется в модуле L<FCGI.pm>
+
+=cut
 
 sub event {
     shift() if $_[0] && ($_[0] eq __PACKAGE__);
