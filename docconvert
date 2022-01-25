@@ -1,0 +1,65 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use utf8;
+
+use Pod::Markdown;
+
+my @mod = qw|
+                BinProto
+                Const
+                DT
+                Hash
+                Log
+                Num
+                Proc
+                Rights
+                strict
+                strict8
+                TimeCount
+                Web/CGI
+                Web/FCGI
+                Web/Controller
+                Web/Param
+                DB/MySQL
+            |;
+
+foreach my $mod (@mod) {
+    my $parser = Pod::Markdown->new;
+    
+    my $fsrc = './'.$mod.'.pm';
+    
+    my ($fh, $src);
+    if (open $fh, $fsrc) {
+        local $/ = undef;
+        $src = <$fh>;
+        close $fh;
+    }
+    else {
+        print 'Open['.$fsrc.'] fail: '.$!;
+        next;
+    }
+    
+    my $md;
+    $parser->output_string(\$md);
+    $parser->parse_string_document($src);
+    
+    $mod =~ s/\//\-/g;
+    my $fdst = './doc/'.$mod.'.md';
+    if (!open($fh, '>:utf8', $fdst)) {
+        print 'Open['.$fdst.'] fail: '.$!;
+        next;
+    }
+    print $fh $md;
+    close $fh;
+}
+
+###########################################################
+###########################################################
+###########################################################
+
+
+#==========================================================
+#================================================== End ===
+#==========================================================
